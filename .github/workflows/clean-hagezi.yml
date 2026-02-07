@@ -1,4 +1,4 @@
-name: Optimize Hagezi DNS Lists
+name: Optimize Hagezi DNS Lists (Mini/Medium Edition)
 
 on:
   schedule:
@@ -30,44 +30,71 @@ jobs:
           cd cleaner-adblock
           npm install puppeteer
 
-      - name: Download Hagezi Pro and TIF Lists
+      - name: Download Hagezi Mini/Medium Lists
         run: |
-          curl -sSL "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.txt" -o hagezi-pro-raw.txt
-          curl -sSL "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.txt" -o hagezi-tif-raw.txt
-          echo "原始规则数统计："
-          echo "  Pro: $(grep -c '^[^!#]' hagezi-pro-raw.txt)"
-          echo "  TIF: $(grep -c '^[^!#]' hagezi-tif-raw.txt)"
+          # 下载三个指定的精简版规则列表
+          curl -sSL "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt" -o hagezi-pro-mini-raw.txt
+          curl -sSL "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt" -o hagezi-tif-medium-raw.txt
+          curl -sSL "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/spam-tlds.txt" -o hagezi-spam-tlds-raw.txt
+          echo "📥 原始规则数统计："
+          echo "  Pro mini: $(grep -c '^[^!#]' hagezi-pro-mini-raw.txt)"
+          echo "  TIF medium: $(grep -c '^[^!#]' hagezi-tif-medium-raw.txt)"
+          echo "  Spam TLDs: $(grep -c '^[^!#]' hagezi-spam-tlds-raw.txt)"
 
       - name: Optimize Lists with Cleaner-adblock
         run: |
           cd cleaner-adblock
-          # 优化Pro列表
-          node cleaner-adblock.js ../hagezi-pro-raw.txt --export-list --check-dig-always --ignore-similar --concurrency=6
-          find . -name "*pro-raw_cleaned_*.txt" -exec mv {} ../hagezi-pro_optimized.txt \;
-          # 优化TIF列表
-          node cleaner-adblock.js ../hagezi-tif-raw.txt --export-list --check-dig-always --ignore-similar --concurrency=6
-          find . -name "*tif-raw_cleaned_*.txt" -exec mv {} ../hagezi-tif_optimized.txt \;
+          echo "🔧 开始优化规则列表 (此步骤可能需要几分钟)..."
+
+          # 优化 Pro mini 列表
+          if [ -f ../hagezi-pro-mini-raw.txt ]; then
+            node cleaner-adblock.js ../hagezi-pro-mini-raw.txt --export-list --check-dig-always --ignore-similar --concurrency=6
+            find . -maxdepth 1 -name "*pro-mini-raw_cleaned_*.txt" -exec mv {} ../hagezi-pro-mini_optimized.txt \;
+          fi
+
+          # 优化 TIF medium 列表
+          if [ -f ../hagezi-tif-medium-raw.txt ]; then
+            node cleaner-adblock.js ../hagezi-tif-medium-raw.txt --export-list --check-dig-always --ignore-similar --concurrency=6
+            find . -maxdepth 1 -name "*tif-medium-raw_cleaned_*.txt" -exec mv {} ../hagezi-tif-medium_optimized.txt \;
+          fi
+
+          # 优化 Spam TLDs 列表 (此列表通常较小，可能无需复杂优化)
+          if [ -f ../hagezi-spam-tlds-raw.txt ]; then
+            # 对于TLD列表，我们主要移除注释和空行
+            grep -v -e '^!' -e '^#' -e '^$' ../hagezi-spam-tlds-raw.txt > ../hagezi-spam-tlds_optimized.txt
+          fi
+
+          echo "✅ 优化完成。"
 
       - name: Generate Final AdGuard-compliant Rules
         run: |
-          # 生成最终纯净规则文件（无注释、无空行）
-          grep -v -e '^!' -e '^#' -e '^$' hagezi-pro_optimized.txt > hagezi-pro_final.txt
-          grep -v -e '^!' -e '^#' -e '^$' hagezi-tif_optimized.txt > hagezi-tif_final.txt
-          echo "最终规则数："
-          echo "  Pro: $(wc -l < hagezi-pro_final.txt)"
-          echo "  TIF: $(wc -l < hagezi-tif_final.txt)"
-          # 清理中间文件
+          # 为每个优化后的列表生成最终纯净规则文件
+          for prefix in pro-mini tif-medium spam-tlds; do
+            if [ -f "hagezi-${prefix}_optimized.txt" ]; then
+              # 移除注释和空行，生成最终文件
+              grep -v -e '^!' -e '^#' -e '^$' "hagezi-${prefix}_optimized.txt" > "hagezi-${prefix}_final.txt"
+              # 统计行数
+              count=$(wc -l < "hagezi-${prefix}_final.txt")
+              echo "  ${prefix}: $count 条规则"
+            fi
+          done
+
+          echo "📊 最终规则数统计："
+          ls -la hagezi-*_final.txt | awk '{print $9, ": " $5 " bytes"}'
+
+          # 清理中间文件以节省空间
           rm -f hagezi-*-raw.txt hagezi-*_optimized.txt
 
       - name: Commit Optimized Files to Repository
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # 添加所有最终规则文件
           git add hagezi-*_final.txt
           if git diff --staged --quiet; then
-            echo "无新变更。"
+            echo "📭 无新变更，跳过提交。"
           else
-            git commit -m "Auto-optimize: Hagezi Pro & TIF Lists $(date '+%Y-%m-%d')"
+            git commit -m "Auto-optimize: Hagezi Mini/Medium Lists $(date '+%Y-%m-%d')"
             git push
-            echo "✅ 优化后的规则文件已提交。"
+            echo "✅ 优化后的精简规则文件已提交至仓库。"
           fi
