@@ -1,26 +1,94 @@
-name: Update DNS Blocklist
+name: Sync Rules from HaGeZi
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 00:00 UTC (北京时间 08:00)
-  workflow_dispatch:
+    # 每小时的第5分钟运行（避免整点高峰）
+    - cron: '5 * * * *'
+  workflow_dispatch: # 手动触发
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
 jobs:
-  update:
+  sync-rules:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2小时超时（安全裕度）
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          python-version: '3.10'
-      - name: Install Dependencies
-        run: pip install dnspython requests
-      - name: Run Update Script
-        run: python update_dns_blocklist.py
-      - name: Commit Changes
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Sync Rules
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add final_rules.txt
-          git commit -m "Update DNS blocklist (auto)" || echo "No changes"
-          git push
+          # 创建规则目录
+          mkdir -p rules logs
+          
+          # 定义规则源
+          declare -A rules=(
+            ["pro.mini"]="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt"
+            ["tif.medium"]="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt"
+            ["spam-tlds"]="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/spam-tlds.txt"
+          )
+          
+          # 同步每个规则
+          updated=false
+          for rule in "${!rules[@]}"; do
+            echo "Syncing ${rule}..."
+            url="${rules[$rule]}"
+            
+            # 下载规则，带重试机制
+            for i in {1..3}; do
+              if curl -s -L --retry 3 --max-time 30 -o "rules/${rule}.tmp.txt" "$url"; then
+                break
+              else
+                echo "Attempt $i failed, retrying..."
+                sleep 5
+              fi
+            done
+            
+            # 比较文件是否有变化
+            if [[ -f "rules/${rule}.txt" ]] && cmp -s "rules/${rule}.txt" "rules/${rule}.tmp.txt"; then
+              echo "No changes for ${rule}"
+              rm "rules/${rule}.tmp.txt"
+            else
+              echo "Updating ${rule}"
+              mv "rules/${rule}.tmp.txt" "rules/${rule}.txt"
+              updated=true
+            fi
+          done
+          
+          # 如果有更新，提交更改
+          if [[ "$updated" = true ]]; then
+            # 更新同步时间戳
+            date -u +"%Y-%m-%d %H:%M:%S UTC" > update-timestamp.txt
+            
+            # 配置git
+            git config --global user.name 'GitHub Actions Bot'
+            git config --global user.email 'actions@github.com'
+            
+            # 添加、提交和推送
+            git add rules/ update-timestamp.txt
+            git commit -m "🤖 Sync rules - $(date -u +'%Y-%m-%d %H:%M')"
+            git push
+          else
+            echo "No updates needed"
+          fi
+          
+          # 记录日志
+          echo "Sync completed at $(date)" >> logs/sync-$(date +%Y-%m-%d).log
+
+      - name: Generate Status Report
+        if: always()
+        run: |
+          echo "## 📊 Sync Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Last Sync:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pro Mini Rules:** $(wc -l < rules/pro.mini.txt 2>/dev/null || echo '0') entries" >> $GITHUB_STEP_SUMMARY
+          echo "- **TIF Medium Rules:** $(wc -l < rules/tif.medium.txt 2>/dev/null || echo '0') entries" >> $GITHUB_STEP_SUMMARY
+          echo "- **Spam TLDs:** $(wc -l < rules/spam-tlds.txt 2>/dev/null || echo '0') entries" >> $GITHUB_STEP_SUMMARY
