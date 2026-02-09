@@ -7,8 +7,8 @@ from typing import List, Set
 
 # ========== 配置区域 (已按要求更新) ==========
 UPSTREAM_RULES = [
-    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt",  # ✅ 新规则源
-    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt"  # ✅ 新规则源
+    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt",  # ✅ 正确规则源
+    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt"  # ✅ 正确规则源
 ]
 
 DOMESTIC_DNS = [
@@ -25,7 +25,7 @@ FOREIGN_DNS = [
 
 OUTPUT_FILE = "final_rules.txt"
 
-# ========== 核心逻辑 (保持不变) ==========
+# ========== 核心逻辑 (已优化进度写入) ==========
 def download_rules(urls: List[str]) -> Set[str]:
     domains = set()
     for url in urls:
@@ -60,10 +60,19 @@ def main():
     valid_domains = []
     total = len(all_domains)
     for i, domain in enumerate(all_domains, 1):
+        # DNS验证逻辑
         if is_domain_resolvable(domain, DOMESTIC_DNS):
             valid_domains.append(domain)
         elif is_domain_resolvable(domain, FOREIGN_DNS):
             valid_domains.append(domain)
+        
+        # >>>>> 关键优化：实时写入进度 <<<<<
+        try:
+            with open('.progress', 'w') as f:
+                f.write(f"{i},{total},{int(time.time())}\n")
+        except:
+            pass  # 忽略写入错误，不影响主流程
+        # <<<<< 进度写入结束 >>>>>
         
         if i % 10 == 0:
             time.sleep(0.1)
