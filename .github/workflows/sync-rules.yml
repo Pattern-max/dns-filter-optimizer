@@ -1,38 +1,26 @@
-name: Sync Rules from HaGeZi
+name: Sync Rules
 on:
-  schedule:
-    - cron: '5 * * * *'
+  schedule: [cron: '5 * * * *']
   workflow_dispatch:
-  push:
-    branches: [ main ]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: write
+  push: {branches: [main]}
 
 jobs:
-  sync-rules:
+  sync:
     runs-on: ubuntu-latest
+    permissions: {contents: write}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Sync Script
-        run: bash .github/scripts/sync.sh
-
-      - name: Commit Changes
-        run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "ℹ️ No changes, skipping commit"
-            exit 0
-          fi
-          git commit -m "🤖 Sync rules update - $(date -u +'%Y-%m-%d %H:%M UTC')"
+      - uses: actions/checkout@v4
+      - run: |
+          curl -sL https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.mini.txt > rules/pro.mini.txt
+          curl -sL https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.medium.txt > rules/tif.medium.txt
+          curl -sL https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/spam-tlds.txt > rules/spam-tlds.txt
+          echo "✅ Rules synced"
+        shell: bash
+      - run: |
+          git config user.name "bot"
+          git config user.email "bot@github.com"
+          git add rules/
+          git diff --quiet && echo "No changes" && exit 0
+          git commit -m "🤖 Update rules $(date +%Y-%m-%d)"
           git push
+        shell: bash
