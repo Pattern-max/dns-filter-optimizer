@@ -5,6 +5,9 @@ on:
     - cron: '0 0 * * 1,3,5'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   maintain-activity:
     runs-on: ubuntu-latest
@@ -20,7 +23,20 @@ jobs:
           
           # 如果有README，更新其中的时间戳
           if [[ -f README.md ]]; then
-            sed -i "s/Last active:.*/Last active: $(date -u +'%Y-%m-%d %H:%M:%S UTC')/" README.md
+            # 备份原文件
+            cp README.md README.md.bak
+            
+            # 更新活跃状态行
+            sed -i "s/仓库活跃状态:.*/仓库活跃状态: ✅ 正常 (最后活跃: $(date -u +'%Y-%m-%d %H:%M:%S UTC'))/" README.md
+            
+            # 检查是否有变化
+            if ! cmp -s README.md README.md.bak; then
+              echo "Updating README.md with new activity timestamp"
+            else
+              echo "README.md already up to date"
+            fi
+            
+            rm README.md.bak
           fi
           
           # 提交更新
