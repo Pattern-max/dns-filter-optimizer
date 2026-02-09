@@ -184,8 +184,9 @@ EOF
             echo "update_type=status_only" >> $GITHUB_OUTPUT
           fi
 
+      # ========== 关键修复在此处 ==========
       - name: Commit and Push Changes
-        if: ${{ steps.sync.outputs.update_type }}
+        if: ${{ steps.sync.outputs.update_type != '' }}
         run: |
           echo "准备提交更改..."
           
@@ -201,7 +202,8 @@ EOF
             echo "没有检测到更改，跳过提交。"
           else
             # 根据更新类型生成提交信息
-            if [[ "${{ steps.sync.outputs.update_type }}" == "rules_and_status" ]]; then
+            UPDATE_TYPE="${{ steps.sync.outputs.update_type }}"
+            if [[ "$UPDATE_TYPE" == "rules_and_status" ]]; then
               commit_msg="🤖 同步规则并更新状态 - $(date -u +'%Y-%m-%d %H:%M')"
             else
               commit_msg="📊 更新同步状态 - $(date -u +'%Y-%m-%d %H:%M')"
@@ -232,7 +234,13 @@ EOF
             echo "- **Pro Mini 规则:** $PRO_COUNT 条" >> $GITHUB_STEP_SUMMARY
             echo "- **TIF Medium 规则:** $TIF_COUNT 条" >> $GITHUB_STEP_SUMMARY
             echo "- **Spam TLDs:** $SPAM_COUNT 条" >> $GITHUB_STEP_SUMMARY
-            echo "- **更新类型:** ${{ steps.sync.outputs.update_type || '未检测到更改' }}" >> $GITHUB_STEP_SUMMARY
+            
+            # 安全地获取更新类型
+            UPDATE_TYPE="${{ steps.sync.outputs.update_type }}"
+            if [[ -z "$UPDATE_TYPE" ]]; then
+              UPDATE_TYPE="未检测到更改"
+            fi
+            echo "- **更新类型:** $UPDATE_TYPE" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ 状态文件未生成，同步可能失败。" >> $GITHUB_STEP_SUMMARY
           fi
